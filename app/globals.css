@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fbfaf7;
+  --foreground: #1c1b19;
+  --muted: #6b6860;
+  --line: #e6e3dc;
+  --card: #ffffff;
+  --accent: #0f766e;
+  --danger: #b42318;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #141412;
+    --foreground: #edebe6;
+    --muted: #9c988f;
+    --line: #2c2b28;
+    --card: #1c1b19;
+    --accent: #2dd4bf;
+    --danger: #f97066;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-card: var(--card);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+@layer components {
+  .btn {
+    @apply rounded-md border border-line bg-card px-3 py-1.5 text-sm font-medium hover:border-foreground/40 disabled:opacity-50 cursor-pointer;
+  }
+  .btn-primary {
+    @apply rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50 cursor-pointer;
+  }
+  .input {
+    @apply rounded-md border border-line bg-card px-2.5 py-1.5 text-sm;
+  }
+  .card {
+    @apply rounded-lg border border-line bg-card p-4;
+  }
+}

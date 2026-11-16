@@ -1,0 +1,21 @@
+"use client";
+
+import { useAuth } from "@clerk/nextjs";
+import { ConvexReactClient } from "convex/react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
+import type { ReactNode } from "react";
+
+if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+  throw new Error("Missing NEXT_PUBLIC_CONVEX_URL in .env.local");
+}
+const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL);
+
+// Clerk owns the session; this hands Clerk's JWT to Convex on every request,
+// and Convex verifies it against CLERK_JWT_ISSUER_DOMAIN.
+export default function ConvexClientProvider({ children }: { children: ReactNode }) {
+  return (
+    <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+      {children}
+    </ConvexProviderWithClerk>
+  );
+}

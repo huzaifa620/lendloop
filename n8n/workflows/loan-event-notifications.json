@@ -1,0 +1,344 @@
+{
+  "id": "LLloanEvents0001",
+  "name": "LendLoop - Loan event notifications",
+  "nodes": [
+    {
+      "id": "bdf78deb-a2ac-476f-a6bd-efd1022e2bd6",
+      "name": "Loan event from Convex",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lendloop-loan-events",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "3b9f6c1e-8d2a-4f5b-9c7e-1a2b3c4d5e6f"
+    },
+    {
+      "id": "f390ffb6-d9cc-44b6-98d9-74918a86db5c",
+      "name": "Build string to verify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// HMAC must be computed over the exact bytes Convex signed, so use the raw\n// body, not n8n's parsed copy of it.\nconst headers = $input.first().json.headers;\nconst raw = $input.first().binary?.data\n  ? (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8')\n  : '';\nconst ts = String(headers['x-lendloop-timestamp'] ?? '');\nreturn [{ json: { ts, signature: String(headers['x-lendloop-signature'] ?? ''), raw, signedString: `${ts}.${raw}` } }];"
+      }
+    },
+    {
+      "id": "a621d51f-11f5-43b4-9610-3a8450c07bf5",
+      "name": "HMAC with shared secret",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.signedString }}",
+        "dataPropertyName": "expected",
+        "encoding": "hex"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "LLhmacCredent001",
+          "name": "LendLoop HMAC secret"
+        }
+      }
+    },
+    {
+      "id": "7e06b764-3100-4c98-9d36-3372db3bea34",
+      "name": "Verify signature, then parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const { ts, signature, raw, expected } = $input.first().json;\n// Constant-time compare: the loop never exits early, so response timing\n// doesn't reveal how many leading characters of a forged signature matched.\nconst provided = signature.startsWith('sha256=') ? signature.slice(7) : '';\nlet diff = provided.length ^ expected.length;\nfor (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ (provided.charCodeAt(i) || 0);\nconst fresh = /^\\d{1,12}$/.test(ts) && Math.abs(Date.now() / 1000 - Number(ts)) <= 300;\nif (diff !== 0 || !fresh) return [{ json: { valid: false } }];\n// Only now is the body trusted enough to parse.\nreturn [{ json: { valid: true, event: JSON.parse(raw) } }];"
+      }
+    },
+    {
+      "id": "1e9b7c6a-21b8-4207-8f43-47cf4985304a",
+      "name": "Signature valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "40914860-d33c-4d34-934a-8f613ff3bb46",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "070b2482-e350-43a9-82a5-815bd3d1ab0b",
+      "name": "Respond 202 Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        -100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"accepted\": true }",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    },
+    {
+      "id": "85e1b849-f366-4205-a189-7ecd3766586d",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"error\": \"invalid signature\" }",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "cad0cfbd-eba6-49df-940e-4953311b6c2f",
+      "name": "Send notification (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -100
+      ],
+      "parameters": {
+        "jsCode": "// Keep personal data out of n8n's logs: show a masked address only.\nconst mask = (email) => email ? email.replace(/^(.).*(@.*)$/, '$1***$2') : '(no email on file)';\n// Uses only the fields a message needs. A real email/SMS node replaces this\n// and should pass eventId as the provider's idempotency key.\nconst e = $('Verify signature, then parse').first().json.event;\nconst text = {\n  'loan.pending': `${e.toolName}: new borrow request for ${e.startDate} to ${e.endDate}.`,\n  'loan.approved': `Your request for ${e.toolName} (${e.startDate} to ${e.endDate}) was approved.`,\n  'loan.declined': `Your request for ${e.toolName} was declined.`,\n  'loan.returned': `Thanks for returning ${e.toolName}.`,\n}[e.type] ?? `Update on ${e.toolName}: ${e.status}`;\nconsole.log(`[notify] to ${mask(e.recipient.email)} (${e.recipient.name}): ${text}`);\nreturn [{ json: { eventId: e.eventId, loanId: e.loanId, to: mask(e.recipient.email), text } }];"
+      }
+    },
+    {
+      "id": "2c9ed421-0d70-4443-91cd-dd2240d9078a",
+      "name": "Build write-back",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Body for the Convex write-back. 'key' is the idempotency key: if n8n\n// retries this request, Convex updates the same record instead of adding one.\nconst body = JSON.stringify({ key: `notification:${$json.eventId}`, loanId: $json.loanId, kind: 'notification', status: 'sent' });\nconst ts = Math.floor(Date.now() / 1000);\nreturn { json: { body, ts, signedString: `${ts}.${body}` } };"
+      }
+    },
+    {
+      "id": "42d05e44-807b-40cf-a56a-f1a50c4bb3ef",
+      "name": "Sign write-back",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        -100
+      ],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.signedString }}",
+        "dataPropertyName": "signature",
+        "encoding": "hex"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "LLhmacCredent001",
+          "name": "LendLoop HMAC secret"
+        }
+      }
+    },
+    {
+      "id": "5fa1ed91-38ba-456e-8d99-f4ce95dadfdd",
+      "name": "Record in Convex",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        -100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LENDLOOP_CONVEX_SITE_URL }}/automation/activity",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-lendloop-timestamp",
+              "value": "={{ $json.ts }}"
+            },
+            {
+              "name": "x-lendloop-signature",
+              "value": "=sha256={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "Loan event from Convex": {
+      "main": [
+        [
+          {
+            "node": "Build string to verify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build string to verify": {
+      "main": [
+        [
+          {
+            "node": "HMAC with shared secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HMAC with shared secret": {
+      "main": [
+        [
+          {
+            "node": "Verify signature, then parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify signature, then parse": {
+      "main": [
+        [
+          {
+            "node": "Signature valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature valid?": {
+      "main": [
+        [
+          {
+            "node": "Respond 202 Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 202 Accepted": {
+      "main": [
+        [
+          {
+            "node": "Send notification (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send notification (mock)": {
+      "main": [
+        [
+          {
+            "node": "Build write-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build write-back": {
+      "main": [
+        [
+          {
+            "node": "Sign write-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign write-back": {
+      "main": [
+        [
+          {
+            "node": "Record in Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "LLerrorHandler01"
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}

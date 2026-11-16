@@ -1,0 +1,314 @@
+{
+  "id": "LLoverdueRemind1",
+  "name": "LendLoop - Daily overdue reminders",
+  "nodes": [
+    {
+      "id": "b435d440-2a2a-4e93-814c-b4581c69b341",
+      "name": "Every day 09:00 UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "98d7279d-12db-4663-8e08-1c93fc5bd319",
+      "name": "Run now (manual test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "2542785b-0fa8-4525-a5be-7b562fedcb95",
+      "name": "Sign request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// GET has an empty body, so the signature covers the timestamp alone.\nconst ts = Math.floor(Date.now() / 1000);\nreturn [{ json: { ts, signedString: `${ts}.` } }];"
+      }
+    },
+    {
+      "id": "7baa1f0e-c778-4146-b53e-aa60e46ccef7",
+      "name": "HMAC with shared secret",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.signedString }}",
+        "dataPropertyName": "signature",
+        "encoding": "hex"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "LLhmacCredent001",
+          "name": "LendLoop HMAC secret"
+        }
+      }
+    },
+    {
+      "id": "c94231d2-5f72-466e-9cd2-f7a0d6c041f9",
+      "name": "Fetch overdue loans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.LENDLOOP_CONVEX_SITE_URL }}/automation/overdue-loans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-lendloop-timestamp",
+              "value": "={{ $json.ts }}"
+            },
+            {
+              "name": "x-lendloop-signature",
+              "value": "=sha256={{ $json.signature }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "82224117-62b3-4a70-8376-ec7c74d309c7",
+      "name": "One item per loan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Convex already left out loans reminded today, so a re-run sends nothing twice.\nreturn $input.first().json.loans.map((loan) => ({ json: loan }));"
+      }
+    },
+    {
+      "id": "867ce8ce-2f2f-418b-a278-4637c16a1e0d",
+      "name": "Send reminder (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Keep personal data out of n8n's logs: show a masked address only.\nconst mask = (email) => email ? email.replace(/^(.).*(@.*)$/, '$1***$2') : '(no email on file)';\nconst loan = $json;\nif (!loan.borrower.email) {\n  return { json: { ...loan, status: 'failed', reason: 'no email on file' } };\n}\n// A real email node replaces this and passes loan.reminderKey as the\n// provider's idempotency key.\nconsole.log(`[remind] to ${mask(loan.borrower.email)} (${loan.borrower.name}): ${loan.toolName} was due back ${loan.endDate} (${loan.daysOverdue} days overdue).`);\nreturn { json: { ...loan, status: 'sent' } };"
+      }
+    },
+    {
+      "id": "3c9100c2-6605-47cb-bf8f-f8c526f6c960",
+      "name": "Build write-back",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Body for the Convex write-back. 'key' is the idempotency key: if n8n\n// retries this request, Convex updates the same record instead of adding one.\nconst body = JSON.stringify({ key: $json.reminderKey, loanId: $json.loanId, kind: 'reminder', status: $json.status });\nconst ts = Math.floor(Date.now() / 1000);\nreturn { json: { body, ts, signedString: `${ts}.${body}` } };"
+      }
+    },
+    {
+      "id": "4ebcf9f0-a999-40df-a99a-237c6ef678c0",
+      "name": "Sign write-back",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.signedString }}",
+        "dataPropertyName": "signature",
+        "encoding": "hex"
+      },
+      "credentials": {
+        "crypto": {
+          "id": "LLhmacCredent001",
+          "name": "LendLoop HMAC secret"
+        }
+      }
+    },
+    {
+      "id": "5b1e8523-b702-4085-b6a5-601ab99d546c",
+      "name": "Record in Convex",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LENDLOOP_CONVEX_SITE_URL }}/automation/activity",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-lendloop-timestamp",
+              "value": "={{ $json.ts }}"
+            },
+            {
+              "name": "x-lendloop-signature",
+              "value": "=sha256={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "Run now (manual test)": {
+      "main": [
+        [
+          {
+            "node": "Sign request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every day 09:00 UTC": {
+      "main": [
+        [
+          {
+            "node": "Sign request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign request": {
+      "main": [
+        [
+          {
+            "node": "HMAC with shared secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HMAC with shared secret": {
+      "main": [
+        [
+          {
+            "node": "Fetch overdue loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch overdue loans": {
+      "main": [
+        [
+          {
+            "node": "One item per loan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per loan": {
+      "main": [
+        [
+          {
+            "node": "Send reminder (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send reminder (mock)": {
+      "main": [
+        [
+          {
+            "node": "Build write-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build write-back": {
+      "main": [
+        [
+          {
+            "node": "Sign write-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign write-back": {
+      "main": [
+        [
+          {
+            "node": "Record in Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "LLerrorHandler01"
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}

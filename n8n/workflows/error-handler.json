@@ -1,0 +1,49 @@
+{
+  "id": "LLerrorHandler01",
+  "name": "LendLoop - Error handler",
+  "nodes": [
+    {
+      "id": "c7c615db-8deb-484e-aaf1-b34760290c0d",
+      "name": "When a LendLoop workflow fails",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "acfb813d-e3e7-4761-ab90-406eeb6cb19c",
+      "name": "Raise alert (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Runs after a workflow's own retries are exhausted. Swap for Slack/email/\n// PagerDuty in production. The error message is logged, the payload is not.\nconst { workflow, execution } = $input.first().json;\nconst alert = {\n  workflow: workflow?.name,\n  failedNode: execution?.lastNodeExecuted,\n  error: execution?.error?.message,\n  executionUrl: execution?.url,\n  at: new Date().toISOString(),\n};\nconsole.log('[alert] LendLoop automation failed', JSON.stringify(alert));\nreturn [{ json: alert }];"
+      }
+    }
+  ],
+  "connections": {
+    "When a LendLoop workflow fails": {
+      "main": [
+        [
+          {
+            "node": "Raise alert (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}

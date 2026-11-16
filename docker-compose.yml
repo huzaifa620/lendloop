@@ -1,0 +1,35 @@
+# Self-hosted n8n for the LendLoop automations.
+#   docker compose up -d   ->  http://localhost:5678
+# The container's environment holds configuration only. The HMAC secret lives
+# in an n8n credential (encrypted in the n8n_data volume), never in this file
+# or in the exported workflow JSON.
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.47.7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678" # bind to localhost only
+    environment:
+      GENERIC_TIMEZONE: UTC
+      TZ: UTC
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      # Mock notifications/alerts are console.log lines; show them in `docker compose logs`.
+      CODE_ENABLE_STDOUT: "true"
+      # Execution history holds payloads (names, emails): keep it for 7 days only.
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"
+      # Workflows read LENDLOOP_CONVEX_SITE_URL via $env. n8n 2.x blocks $env by
+      # default; it is safe to allow here only because nothing secret is in this
+      # environment (no N8N_ENCRYPTION_KEY, no DB password, no HMAC secret).
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      # Where n8n reaches Convex HTTP actions. host.docker.internal = your machine.
+      LENDLOOP_CONVEX_SITE_URL: ${LENDLOOP_CONVEX_SITE_URL:-http://host.docker.internal:3211}
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Linux; Docker Desktop provides it already
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+
+volumes:
+  n8n_data:
