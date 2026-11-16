@@ -65,6 +65,20 @@ const ACTIVITY_LABEL = {
   webhook_delivery: "Webhook delivery",
 } as const;
 
+const TRANSITION_LABEL = {
+  pending: "Request",
+  approved: "Approval",
+  declined: "Decline",
+  returned: "Return",
+} as const;
+
+type Activity = Loan["activity"][number];
+function activityText(a: Activity) {
+  const what = ACTIVITY_LABEL[a.kind];
+  // "Approval notification sent", "Request webhook delivery failed", ...
+  return a.about ? `${TRANSITION_LABEL[a.about]} ${what.toLowerCase()}` : what;
+}
+
 // One loan row, shared by "My requests", "Incoming" and the admin view.
 export function LoanRow({ loan, who, children }: { loan: Loan; who: string; children?: React.ReactNode }) {
   return (
@@ -83,7 +97,7 @@ export function LoanRow({ loan, who, children }: { loan: Loan; who: string; chil
         <ul className="text-xs text-muted">
           {loan.activity.map((a) => (
             <li key={`${a.kind}-${a.at}`}>
-              {ACTIVITY_LABEL[a.kind]} {a.status} {timeAgo(a.at)}
+              {activityText(a)} {a.status} {timeAgo(a.at)}
             </li>
           ))}
         </ul>

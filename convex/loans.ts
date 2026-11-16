@@ -108,8 +108,20 @@ const activity = v.array(
     kind: v.union(v.literal("notification"), v.literal("reminder"), v.literal("webhook_delivery")),
     status: v.union(v.literal("sent"), v.literal("failed")),
     at: v.number(),
+    // Which loan transition a notification was about, e.g. "approved".
+    about: v.union(loanStatus, v.null()),
   }),
 );
+
+const LOAN_STATUSES = ["pending", "approved", "declined", "returned"] as const;
+
+// Notification keys end in the transition ("notification:<loanId>:approved",
+// see queueLoanNotification). The key arrived from n8n, so only an exact
+// known status is shown; anything else displays as a plain notification.
+function transitionFromKey(key: string) {
+  const last = key.split(":").pop();
+  return LOAN_STATUSES.find((s) => s === last) ?? null;
+}
 
 const loanView = v.object({
   _id: v.id("loans"),
@@ -140,7 +152,12 @@ async function toView(ctx: QueryCtx, loan: Doc<"loans">, otherPartyId: Id<"users
     endDate: loan.endDate,
     status: loan.status,
     overdue: loan.status === "approved" && loan.endDate < today,
-    activity: events.map(({ kind, status, at }) => ({ kind, status, at })),
+    activity: events.map(({ kind, status, at, key }) => ({
+      kind,
+      status,
+      at,
+      about: kind === "reminder" ? null : transitionFromKey(key),
+    })),
   };
 }
 

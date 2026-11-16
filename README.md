@@ -34,6 +34,7 @@ cp .env.example .env.local
    ```json
    { "email": "{{user.primary_email_address}}", "given_name": "{{user.first_name}}" }
    ```
+5. After turning on the integration or changing the token claims, **sign out of LendLoop and back in**. An existing session keeps its old token, so until you do, Convex sees you as signed out (stuck on "Signing you in…") or without an email.
 
 ### 3. Convex
 
